@@ -1,77 +1,93 @@
 /***************************************************************************
-This is a library for the BME280 humidity, temperature & pressure sensor
+  This is a library for the BME280 humidity, temperature & pressure sensor
 
-Designed specifically to work with the Adafruit BME280 Breakout
-----> http://www.adafruit.com/products/2650
+  Designed specifically to work with the Adafruit BME280 Breakout
+  ----> http://www.adafruit.com/products/2650
 
-These sensors use I2C or SPI to communicate, 2 or 4 pins are required
-to interface.
+  These sensors use I2C or SPI to communicate, 2 or 4 pins are required
+  to interface.
 
-Adafruit invests time and resources providing this open source code,
-please support Adafruit andopen-source hardware by purchasing products
-from Adafruit!
+  Adafruit invests time and resources providing this open source code,
+  please support Adafruit andopen-source hardware by purchasing products
+  from Adafruit!
 
-Written by Limor Fried & Kevin Townsend for Adafruit Industries.
-BSD license, all text above must be included in any redistribution
+  Written by Limor Fried & Kevin Townsend for Adafruit Industries.
+  BSD license, all text above must be included in any redistribution
 ***************************************************************************/
 
 #include <Adafruit_BME280.h>
-#include <LiquidCrystal.h>
 #include <Wire.h>
 #include <ArduinoJson.h>
+#include <JeeLib.h>
+#include <PortsLCD.h>
 
 #define SEALEVELPRESSURE_HPA (1013.25)
-
-#define serialPeriod 2000
-#define screenPeriod 2000
-
+#define DEBUG 0
+#if DEBUG
+#define serialPeriod       10
+#define screenPeriod     2000
+#else
+#define serialPeriod       60
+#define screenPeriod    10000
+#endif
 Adafruit_BME280 bme; // I2C
-LiquidCrystal lcd(7, 8, 9, 10, 11, 12);
-StaticJsonBuffer<200> jsonBuffer;
+LiquidCrystal lcd(3, 4, 5, 6, 7, 8);
+StaticJsonBuffer<65> jsonBuffer;
 JsonObject& root = jsonBuffer.createObject();
-double temperature,pressure,humidity;
+double temperature, pressure, humidity;
 
-int count = 0;
-int max = serialPeriod / screenPeriod;
+
+MilliTimer screenTimer;
+int period;
 
 void setup() {
   // Demarre le BME280
   bme.begin();
   Serial.begin(9600);
+  rf12_initialize(1, RF12_868MHZ, 201);
 
   // Demarre l'ecran LCD
   lcd.begin(16, 2);
   lcd.print("Temp:         *C");
-  lcd.setCursor(0,1);
+  lcd.setCursor(0, 1);
   lcd.print("Humidity:     % ");
 
-  root["sensor"] = "static";
+  root["id"] = "liv";
+  period = 0;
 }
 
 void loop() {
-  // Maj Temp
-  temperature = bme.readTemperature();
-  pressure = bme.readPressure();
-  humidity = bme.readHumidity();
-
-  lcd.setCursor(11,0);
-  lcd.print((int)temperature);
-  lcd.setCursor(11,1);
-  lcd.print((int)humidity);
-
-  if(count < max  )
-  {
-    count++;
+  // Check if received msg
+  if (rf12_recvDone() && rf12_crc == 0) {
+        for (byte i = 0; i < rf12_len; ++i) {
+          Serial.print((char) rf12_data[i]);
+        }
+        Serial.println();
   }
-  else
+    
+  // Maj local sensor output
+  if(screenTimer.poll(screenPeriod))
   {
-    count = 0;
-    root["temp"] = temperature;  
-    root["humidity"] = humidity ;
-    root["pressure"] = pressure;
-    root.printTo(Serial);
-    Serial.println();
+    temperature = bme.readTemperature();
+    pressure = bme.readPressure();
+    humidity = bme.readHumidity();
+
+    lcd.setCursor(11, 0);
+    lcd.print((int)temperature);
+    lcd.setCursor(11, 1);
+    lcd.print((int)humidity);
+    
+    period++;
+    if(period >= serialPeriod)
+    {
+      period = 0;
+      root["t"] = temperature;
+      root["h"] = humidity ;
+      root["p"] = pressure;
+      root.printTo(Serial);
+      Serial.println();
+    }
   }
-  delay(screenPeriod);
+
 }
 
