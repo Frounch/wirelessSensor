@@ -23,4 +23,3 @@ while True:
         res = requests.get(request)
    except:
         pass
-
